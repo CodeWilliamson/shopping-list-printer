@@ -1,0 +1,26 @@
+rule "Shopping list print trigger"
+when
+  Item ShoppingListPrintTrigger received command ON
+then
+  val keepBridgeBaseUrl = "http://keep-bridge.local:3001"
+  val esp32BaseUrl = "http://esp32-printer.local"
+  val apiToken = "REPLACE_WITH_SHARED_TOKEN"
+
+  val latestJobResponse = sendHttpGetRequest(keepBridgeBaseUrl + "/latest-job", 5000)
+  if (latestJobResponse === null || latestJobResponse.length == 0) {
+    ShoppingListPrintStatus.postUpdate("No job data from keep-bridge")
+    return;
+  }
+
+  val headers = newHashMap("Authorization" -> ("Bearer " + apiToken), "Content-Type" -> "application/json")
+  val postResponse = sendHttpPostRequest(esp32BaseUrl + "/print", "application/json", latestJobResponse, headers, 5000)
+
+  if (postResponse === null) {
+    ShoppingListPrintStatus.postUpdate("ESP32 print request failed")
+  } else {
+    ShoppingListPrintStatus.postUpdate("Print request sent")
+    ShoppingListPrintLastJob.postUpdate(now.toString)
+  }
+
+  ShoppingListPrintTrigger.postUpdate(OFF)
+end

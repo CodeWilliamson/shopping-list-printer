@@ -1,0 +1,3 @@
+Switch ShoppingListPrintTrigger "Print shopping list" { ga="Action" }
+String ShoppingListPrintLastJob "Last shopping print job"
+String ShoppingListPrintStatus "Shopping print status"

@@ -1,0 +1,2 @@
+// Optional: define HTTP things/channels if you prefer Thing-based wiring.
+// MVP starts with direct sendHttpGetRequest/sendHttpPostRequest in rules.
