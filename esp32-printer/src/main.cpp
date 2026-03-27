@@ -3,27 +3,23 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <NimBLEDevice.h>
+#include <PubSubClient.h>
 
 #define LED_BUILTIN 2
-
-#ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#endif
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#endif
-#ifndef API_TOKEN
-#define API_TOKEN "YOUR_API_TOKEN"
-#endif
-#ifndef PRINTER_NAME
-#define PRINTER_NAME "YOUR_PRINTER_NAME"
-#endif
 
 const char* WIFI_SSID_VALUE = WIFI_SSID;
 const char* WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
 const char* API_TOKEN_VALUE = API_TOKEN;
 const char* PRINTER_NAME_VALUE = PRINTER_NAME;
+const char* PROTOCOL = PROTOCOL_TYPE;
+const char* MQTT_BROKER_VALUE = MQTT_BROKER;
+const uint16_t MQTT_PORT_VALUE = strtoul(MQTT_PORT, nullptr, 10);
+const char* MQTT_USERNAME_VALUE = MQTT_USERNAME;
+const char* MQTT_PASSWORD_VALUE = MQTT_PASSWORD;
+const char* MQTT_PRINT_TOPIC_VALUE = MQTT_PRINT_TOPIC;
 WebServer server(80);
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
 String lastError = "none";
 String lastJobId = "none";
 
@@ -32,18 +28,38 @@ static NimBLEAdvertisedDevice* printerDevice = nullptr;
 NimBLEClient* pClient = nullptr;
 NimBLERemoteCharacteristic* pRemoteCharacteristic = nullptr;
 bool bleConnected = false;
+size_t currentPrintBytes = 0;
+bool currentPrintFailed = false;
+String currentPrintError = "none";
+
+bool isHttpMode() {
+  return String(PROTOCOL).equalsIgnoreCase("http");
+}
+
+bool isMqttMode() {
+  return String(PROTOCOL).equalsIgnoreCase("mqtt");
+}
 
 
-void printOverBle(const String& payload) {
+bool printOverBle(const uint8_t* payload, size_t payloadLength) {
   if (!bleConnected || !pRemoteCharacteristic) {
     Serial.println("[printer] BLE not connected or characteristic not found");
-    return;
+    return false;
   }
-  Serial.println("[printer] BLE print payload:");
-  Serial.println(payload);
-  // Send as plain text (may need to chunk for large payloads)
-  String payloadWithLineFeeds = payload + "\n\n\n\n\n\n\n\n\n\n\n\n";
-  pRemoteCharacteristic->writeValue((uint8_t*)payloadWithLineFeeds.c_str(), payloadWithLineFeeds.length());
+
+  constexpr size_t kBleChunkSize = 180;
+  Serial.print("[printer] Sending raw ESC/POS bytes over BLE: ");
+  Serial.println(payloadLength);
+
+  for (size_t offset = 0; offset < payloadLength; offset += kBleChunkSize) {
+    const size_t chunkLength = min(kBleChunkSize, payloadLength - offset);
+    if (!pRemoteCharacteristic->writeValue(payload + offset, chunkLength)) {
+      Serial.println("[printer] BLE write failed");
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // BLE scan callback
@@ -111,32 +127,169 @@ bool isAuthorized() {
   return auth == expected;
 }
 
+void handlePrintBody() {
+  HTTPRaw& raw = server.raw();
+
+  if (raw.status == RAW_START) {
+    currentPrintBytes = 0;
+    currentPrintFailed = false;
+    currentPrintError = "none";
+    const uint8_t initCommand[] = {0x1B, 0x40}; // ESC @ - initialize printer
+    if (!printOverBle(initCommand, sizeof(initCommand))) {
+      currentPrintFailed = true;
+      currentPrintError = "BLE init failed";
+    }
+    return;
+  }
+
+  if (raw.status == RAW_ABORTED) {
+    currentPrintFailed = true;
+    currentPrintError = "Request aborted";
+    return;
+  }
+
+  if (raw.status == RAW_WRITE) {
+    if (currentPrintFailed || !isAuthorized()) {
+      return;
+    }
+
+    if (!printOverBle(raw.buf, raw.currentSize)) {
+      currentPrintFailed = true;
+      currentPrintError = "BLE write failed";
+      return;
+    }
+
+    currentPrintBytes += raw.currentSize;
+  }
+
+  // when done processing bytes
+  if (raw.status == RAW_END) {
+    if (currentPrintFailed || !isAuthorized()) {
+      return;
+    }
+
+    // send line feed and cut command to printer (ESC/POS)
+    const uint8_t linefeedCommand[] = {0x1B, 0x64, 0x0A}; // ESC d n - print and feed n lines (n=10)
+    const uint8_t cutCommand[] = {0x1D, 0x56, 0x00}; // GS V m - cut paper (m=0 for full cut)
+    if (!printOverBle(linefeedCommand, sizeof(linefeedCommand)) ||
+        !printOverBle(cutCommand, sizeof(cutCommand))) {
+      currentPrintFailed = true;
+      currentPrintError = "BLE finalize failed";
+    }
+  }
+}
+
 void handlePrint() {
   if (!isAuthorized()) {
+    lastError = "Unauthorized";
     server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
     return;
   }
 
-  if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{\"error\":\"Missing JSON body\"}");
+  if (currentPrintBytes == 0) {
+    lastError = "Empty request body";
+    server.send(400, "application/json", "{\"error\":\"Empty request body\"}");
     return;
   }
 
-  JsonDocument doc;
-  const String body = server.arg("plain");
-  // const auto error = deserializeJson(doc, body);
+  if (currentPrintFailed) {
+    lastError = currentPrintError;
+    server.send(503, "application/json", "{\"error\":\"Printer unavailable\"}");
+    return;
+  }
 
-  // if (error) {
-  //   lastError = String("JSON parse failed: ") + error.c_str();
-  //   server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-  //   return;
-  // }
+  lastJobId = server.hasArg("jobId") ? server.arg("jobId") : "unknown";
+  lastError = "none";
+  String response = String("{\"ok\":true,\"bytes\":") + currentPrintBytes + "}";
+  server.send(200, "application/json", response);
+}
 
-  const char* jobId = doc["jobId"] | "unknown";
-  lastJobId = jobId;
+bool finalizeEscPosJob() {
+  const uint8_t linefeedCommand[] = {0x1B, 0x64, 0x0A}; // ESC d n - print and feed n lines (n=10)
+  const uint8_t cutCommand[] = {0x1D, 0x56, 0x00};      // GS V m - full cut
+  return printOverBle(linefeedCommand, sizeof(linefeedCommand)) &&
+         printOverBle(cutCommand, sizeof(cutCommand));
+}
 
-  printOverBle(body);
-  server.send(200, "application/json", "{\"ok\":true}");
+void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
+  (void)topic;
+
+  if (!isMqttMode()) {
+    return;
+  }
+
+  if (!bleConnected) {
+    lastError = "Printer unavailable";
+    return;
+  }
+
+  currentPrintBytes = 0;
+  currentPrintFailed = false;
+  currentPrintError = "none";
+
+  const uint8_t initCommand[] = {0x1B, 0x40}; // ESC @
+  if (!printOverBle(initCommand, sizeof(initCommand))) {
+    currentPrintFailed = true;
+    currentPrintError = "BLE init failed";
+  }
+
+  if (!currentPrintFailed && length > 0 && !printOverBle(payload, length)) {
+    currentPrintFailed = true;
+    currentPrintError = "BLE write failed";
+  }
+
+  if (!currentPrintFailed && !finalizeEscPosJob()) {
+    currentPrintFailed = true;
+    currentPrintError = "BLE finalize failed";
+  }
+
+  if (currentPrintFailed) {
+    lastError = currentPrintError;
+    return;
+  }
+
+  currentPrintBytes = length;
+  lastJobId = String(millis());
+  lastError = "none";
+}
+
+bool ensureMqttConnected() {
+  if (!isMqttMode()) {
+    return false;
+  }
+
+  if (strlen(MQTT_BROKER_VALUE) == 0) {
+    lastError = "MQTT broker not configured";
+    return false;
+  }
+
+  if (mqttClient.connected()) {
+    return true;
+  }
+
+  String clientId = String("esp32-printer-") + String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  bool connected = false;
+  if (strlen(MQTT_USERNAME_VALUE) > 0) {
+    connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME_VALUE, MQTT_PASSWORD_VALUE);
+  } else {
+    connected = mqttClient.connect(clientId.c_str());
+  }
+
+  if (!connected) {
+    lastError = String("MQTT connect failed: ") + mqttClient.state();
+    return false;
+  }
+
+  if (!mqttClient.subscribe(MQTT_PRINT_TOPIC_VALUE)) {
+    lastError = "MQTT subscribe failed";
+    return false;
+  }
+
+  Serial.print("[mqtt] Subscribed to ");
+  Serial.println(MQTT_PRINT_TOPIC_VALUE);
+  lastError = "none";
+  return true;
 }
 
 void setup() {
@@ -145,6 +298,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
+  WiFi.setHostname("esp32-printer");
 
   Serial.print("[wifi] Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -155,12 +309,23 @@ void setup() {
   Serial.print("[wifi] Connected: ");
   Serial.println(WiFi.localIP());
 
-  server.on("/status", HTTP_GET, handleStatus);
-  server.on("/print", HTTP_POST, handlePrint);
-  server.begin();
-
-  Serial.println("[server] HTTP server started");
-
+  if (isHttpMode()) {
+    server.on("/status", HTTP_GET, handleStatus);
+    server.on("/print", HTTP_POST, handlePrint, handlePrintBody);
+    server.begin();
+    Serial.println("[server] HTTP server started");
+  } else if (isMqttMode()) {
+    mqttClient.setServer(MQTT_BROKER_VALUE, MQTT_PORT_VALUE);
+    mqttClient.setCallback(mqttCallback);
+    ensureMqttConnected();
+    Serial.print("[mqtt] Protocol selected, broker=");
+    Serial.print(MQTT_BROKER_VALUE);
+    Serial.print(":");
+    Serial.println(MQTT_PORT_VALUE);
+  } else {
+    Serial.print("[protocol] Unsupported PROTOCOL value: ");
+    Serial.println(PROTOCOL);
+  }
 
   NimBLEDevice::init("");
   NimBLEScan* pScan = NimBLEDevice::getScan();
@@ -173,8 +338,6 @@ void setup() {
   }
   if (printerDevice && connectToPrinter()) {
     Serial.println("[BLE] Ready to print!");
-    // ESC/POS test print (example)
-    String test = String((char)0x1B) + "";
     // blink esp32 onboard LED 3 times in a loop to indicate print job received
     for (int i = 0; i < 3; i++) {
       digitalWrite(LED_BUILTIN, HIGH);
@@ -188,5 +351,12 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();
+  if (isHttpMode()) {
+    server.handleClient();
+  } else if (isMqttMode()) {
+    if (ensureMqttConnected()) {
+      mqttClient.loop();
+    }
+    delay(10);
+  }
 }
