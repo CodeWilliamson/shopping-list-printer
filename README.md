@@ -37,11 +37,22 @@ Create or update `keep-bridge/.env` with:
 KEEP_EMAIL=you@gmail.com
 KEEP_MASTER_TOKEN=
 KEEP_KEEPALIVE_POLL_SECONDS=3600
-ESP32_PRINT_URL=http://esp32-printer.local/print
-ESP32_API_TOKEN=
 KEEP_USE_MOCK=false
 KEEP_STATE_FILE=keep_state.json
 PORT=3001
+
+PRINTER_TRANSPORT=bluetooth_ble
+PRINTER_BLE_DEVICE_NAME=ReceiptPrinter
+PRINTER_BLE_DEVICE_ADDRESS=
+PRINTER_BLE_SCAN_TIMEOUT_SECONDS=8
+PRINTER_BLE_CONNECT_TIMEOUT_SECONDS=10
+PRINTER_WRITE_CHUNK_SIZE=180
+PRINTER_JOB_FEED_LINES=6
+PRINTER_AUTO_CUT=true
+PRINTER_CONNECT_PER_JOB=true
+
+ESP32_PRINT_URL=http://esp32-printer.local/print
+ESP32_API_TOKEN=
 ```
 
 Generate `KEEP_MASTER_TOKEN` using the included bootstrap helper:
@@ -59,6 +70,10 @@ cd keep-bridge
 ```
 
 The service listens on `PORT` (default `3001`).
+
+Printer transport options:
+- `PRINTER_TRANSPORT=bluetooth_ble`: print directly from Raspberry Pi over BLE.
+- `PRINTER_TRANSPORT=esp32_http`: keep forwarding to the ESP32 bridge.
 
 ### 2) Keep Bridge API
 
@@ -84,6 +99,12 @@ Print a Keep list by title (forwards ESC/POS raw bytes to ESP32 `/print`):
 curl -s -X POST "http://127.0.0.1:3001/print-list" \
 	-H "Content-Type: application/json" \
 	-d '{"title":"Shopping list"}'
+
+Printer diagnostics:
+
+```bash
+curl -s "http://127.0.0.1:3001/printer-status"
+```
 ```
 
 `/print-list` behavior:

@@ -1,27 +1,28 @@
 from __future__ import annotations
 
-import hashlib
-import os
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+from pathlib import Path
+import sys
 from typing import Any
 
-from dotenv import load_dotenv
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from flask import Flask, jsonify, request
 
-from keep_client import create_keep_client
+from src.config import load_settings
+from src.escpos import build_escpos_output
+from src.keep_client import create_keep_client
+from src.print_service import PrintService
+from src.printer_transport import create_printer_transport
 
 
-load_dotenv()
-
+settings = load_settings()
 app = Flask(__name__)
 keep_client = create_keep_client()
-keepalive_poll_seconds = int(os.getenv("KEEP_KEEPALIVE_POLL_SECONDS", "3600"))
-esp32_print_url = os.getenv("ESP32_PRINT_URL", "http://ReceiptPrinter.local/print").strip()
-esp32_api_token = os.getenv("ESP32_API_TOKEN", "").strip()
+print_service = PrintService(create_printer_transport(settings.printer))
+keepalive_poll_seconds = settings.app.keepalive_poll_seconds
 
 last_keepalive_error: str | None = None
 state_lock = threading.Lock()
@@ -51,59 +52,6 @@ def keepalive_loop() -> None:
         keepalive_poll_once()
 
 
-def build_escpos_output(title: str, unchecked_items: list[str]) -> list[int]:
-    payload = bytearray()
-
-    # Centered bold title.
-    payload.extend(b"\x1b\x61\x01")
-    payload.extend(b"\x1b\x45\x01")
-    payload.extend(b"\x1d\x21\x22") # 4x height, 4x width
-    payload.extend(title.encode("utf-8", errors="replace"))
-    payload.extend(b"\n")
-    payload.extend(b"\x1b\x45\x00") # Cancel bold
-    payload.extend(b"\x1d\x21\x11") # 2x height, 2x width
-
-    # Left align list contents.
-    payload.extend(b"\x1b\x61\x00")
-    payload.extend(b"\n")
-
-    if unchecked_items:
-        for item in unchecked_items:
-            payload.extend(f"- {item}\n".encode("utf-8", errors="replace"))
-    else:
-        payload.extend(b"(empty)\n")
-
-    return list(payload)
-
-
-def send_escpos_to_esp32(raw_bytes: list[int], job_id: str) -> tuple[bool, int | None, str]:
-    if not esp32_api_token:
-        return False, None, "Missing ESP32_API_TOKEN"
-
-    payload = bytes(raw_bytes)
-    request_url = f"{esp32_print_url}?jobId={urllib.parse.quote(job_id)}"
-    req = urllib.request.Request(
-        request_url,
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {esp32_api_token}",
-            "Content-Type": "application/octet-stream",
-        },
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            status_code = response.getcode()
-            body = response.read().decode("utf-8", errors="replace")
-            return 200 <= status_code < 300, status_code, body
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        return False, error.code, body
-    except Exception as error:  # noqa: BLE001
-        return False, None, str(error)
-
-
 @app.get("/health")
 def health() -> Any:
     with state_lock:
@@ -112,8 +60,14 @@ def health() -> Any:
                 "ok": last_keepalive_error is None,
                 "lastKeepaliveError": last_keepalive_error,
                 "keepalivePollSeconds": keepalive_poll_seconds,
+                "printerTransport": settings.printer.transport,
             }
         )
+
+
+@app.get("/printer-status")
+def printer_status() -> Any:
+    return jsonify(print_service.get_status())
 
 
 @app.get("/list")
@@ -160,21 +114,17 @@ def print_list() -> Any:
     if snapshot is None:
         return jsonify({"error": f"Keep list not found: {list_name}"}), 404
 
-    raw_bytes = build_escpos_output(snapshot.title, snapshot.unchecked_items)
-    signature_payload = "|".join(
-        [snapshot.note_id, snapshot.updated_at, ",".join(snapshot.unchecked_items), ",".join(snapshot.checked_items)]
-    )
-    job_id = hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()[:16]
-
-    ok, status_code, printer_response = send_escpos_to_esp32(raw_bytes, job_id)
-    if not ok:
+    job = print_service.create_job(snapshot)
+    result = print_service.send_job(job)
+    if not result.ok:
         return (
             jsonify(
                 {
-                    "error": "Failed to send ESC/POS payload to ESP32",
-                    "printerStatus": status_code,
-                    "printerResponse": printer_response,
-                    "jobId": job_id,
+                    "error": "Failed to send ESC/POS payload to printer",
+                    "printerStatus": result.status_code,
+                    "printerResponse": result.response,
+                    "jobId": job.job_id,
+                    "printerTransport": settings.printer.transport,
                 }
             ),
             502,
@@ -183,18 +133,19 @@ def print_list() -> Any:
     return jsonify(
         {
             "ok": True,
-            "jobId": job_id,
-            "title": snapshot.title,
-            "uncheckedItems": snapshot.unchecked_items,
-            "bytesSent": len(raw_bytes),
-            "printerStatus": status_code,
-            "printerResponse": printer_response,
+            "jobId": job.job_id,
+            "title": job.title,
+            "uncheckedItems": job.unchecked_items,
+            "bytesSent": len(job.raw_bytes),
+            "printerStatus": result.status_code,
+            "printerResponse": result.response,
+            "printerTransport": settings.printer.transport,
         }
     )
 
 
 def main() -> None:
-    port = int(os.getenv("PORT", "3001"))
+    port = settings.app.port
     print(f"[keep-bridge] Listening on :{port}")
 
     thread = threading.Thread(target=keepalive_loop, daemon=True)
