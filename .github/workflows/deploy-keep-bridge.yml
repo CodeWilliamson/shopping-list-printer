@@ -1,0 +1,77 @@
+name: Deploy Keep Bridge To Raspberry Pi
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - keep-bridge/src/**
+      - keep-bridge/requirements.txt
+      - .github/workflows/deploy-keep-bridge.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-keep-bridge-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      PI_HOST: ${{ secrets.PI_HOST }}
+      PI_PORT: ${{ secrets.PI_PORT }}
+      PI_USER: ${{ secrets.PI_USER }}
+      PI_APP_DIR: ${{ secrets.PI_APP_DIR }}
+      PI_SERVICE: ${{ secrets.PI_SERVICE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          for var in PI_HOST PI_PORT PI_USER PI_APP_DIR PI_SERVICE; do
+            if [ -z "${!var:-}" ]; then
+              echo "Missing required secret: ${var}"
+              exit 1
+            fi
+          done
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PI_SSH_PRIVATE_KEY }}
+
+      - name: Add Raspberry Pi to known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${PI_PORT}" -H "${PI_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Sync keep-bridge to Raspberry Pi
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            --exclude ".venv/" \
+            --exclude "__pycache__/" \
+            --exclude ".pytest_cache/" \
+            --exclude ".env" \
+            ./keep-bridge/ \
+            "${PI_USER}@${PI_HOST}:${PI_APP_DIR}/"
+
+      - name: Install dependencies and restart service
+        run: |
+          set -euo pipefail
+          ssh -p "${PI_PORT}" "${PI_USER}@${PI_HOST}" "bash -s" <<EOF
+          set -euo pipefail
+          cd "${PI_APP_DIR}"
+
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+
+          sudo systemctl restart "${PI_SERVICE}"
+          sudo systemctl is-active --quiet "${PI_SERVICE}"
+          EOF
