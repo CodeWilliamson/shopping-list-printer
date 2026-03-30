@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import threading
 import time
 from pathlib import Path
@@ -23,11 +24,21 @@ app = Flask(__name__)
 keep_client = create_keep_client()
 print_service = PrintService(create_printer_transport(settings.printer))
 keepalive_poll_seconds = settings.app.keepalive_poll_seconds
+ble_idle_timeout_seconds = settings.printer.ble_idle_timeout_seconds
 
 last_keepalive_error: str | None = None
 state_lock = threading.Lock()
 client_lock = threading.Lock()
 
+def shutdown_handler(signum, frame):
+    global running
+    print(f"Received signal {signum}, shutting down...")
+    print_service.close_printer_session()
+    exit(0)
+
+# Catch termination signals
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
 
 def keepalive_poll_once() -> str | None:
     global last_keepalive_error
@@ -54,7 +65,7 @@ def keepalive_loop() -> None:
 
 def keep_bluetooth_alive_loop() -> None:
     while True:
-        time.sleep(print_service._transport.ble_idle_timeout_seconds)
+        time.sleep(ble_idle_timeout_seconds)
         warmup_result = print_service.warmup_printer_session()
 
 
@@ -196,11 +207,10 @@ def main() -> None:
     thread = threading.Thread(target=keepalive_loop, daemon=True)
     thread.start()
 
-    thread2 = threading.Thread(target=keep_bluetooth_alive_loop, daemon=True)
-    thread2.start()
+    # thread2 = threading.Thread(target=keep_bluetooth_alive_loop, daemon=True)
+    # thread2.start()
 
     app.run(host="0.0.0.0", port=port)
-
 
 if __name__ == "__main__":
     main()
