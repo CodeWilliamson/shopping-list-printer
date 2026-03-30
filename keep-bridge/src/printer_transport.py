@@ -277,6 +277,7 @@ class BlePrinterTransport:
         if self._client is not None:
             try:
                 if self._client.is_connected:
+                    print("Disconnecting BLE client...")
                     await self._client.disconnect()
             except Exception:  # noqa: BLE001
                 pass
