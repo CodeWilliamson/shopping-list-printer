@@ -69,7 +69,7 @@ def build_escpos_output(title: str, unchecked_items: list[str]) -> list[int]:
 
     if unchecked_items:
         for item in unchecked_items:
-            payload.extend(f"[ ] {item}\n".encode("utf-8", errors="replace"))
+            payload.extend(f"- {item}\n".encode("utf-8", errors="replace"))
     else:
         payload.extend(b"(empty)\n")
 
@@ -172,8 +172,8 @@ def print_list() -> Any:
             jsonify(
                 {
                     "error": "Failed to send ESC/POS payload to ESP32",
-                    "esp32Status": status_code,
-                    "esp32Response": printer_response,
+                    "printerStatus": status_code,
+                    "printerResponse": jsonify(printer_response),
                     "jobId": job_id,
                 }
             ),
@@ -187,8 +187,8 @@ def print_list() -> Any:
             "title": snapshot.title,
             "uncheckedItems": snapshot.unchecked_items,
             "bytesSent": len(raw_bytes),
-            "esp32Status": status_code,
-            "esp32Response": printer_response,
+            "printerStatus": status_code,
+            "printerResponse": jsonify(printer_response),
         }
     )
 
