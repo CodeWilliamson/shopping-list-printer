@@ -20,7 +20,7 @@ load_dotenv()
 app = Flask(__name__)
 keep_client = create_keep_client()
 keepalive_poll_seconds = int(os.getenv("KEEP_KEEPALIVE_POLL_SECONDS", "3600"))
-esp32_print_url = os.getenv("ESP32_PRINT_URL", "http://esp32-printer.local/print").strip()
+esp32_print_url = os.getenv("ESP32_PRINT_URL", "http://ReceiptPrinter.local/print").strip()
 esp32_api_token = os.getenv("ESP32_API_TOKEN", "").strip()
 
 last_keepalive_error: str | None = None
