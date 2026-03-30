@@ -173,7 +173,7 @@ def print_list() -> Any:
                 {
                     "error": "Failed to send ESC/POS payload to ESP32",
                     "printerStatus": status_code,
-                    "printerResponse": jsonify(printer_response),
+                    "printerResponse": printer_response,
                     "jobId": job_id,
                 }
             ),
@@ -188,7 +188,7 @@ def print_list() -> Any:
             "uncheckedItems": snapshot.unchecked_items,
             "bytesSent": len(raw_bytes),
             "printerStatus": status_code,
-            "printerResponse": jsonify(printer_response),
+            "printerResponse": printer_response,
         }
     )
 
