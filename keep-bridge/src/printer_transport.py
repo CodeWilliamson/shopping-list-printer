@@ -253,7 +253,7 @@ class BlePrinterTransport:
         return probe
 
     async def _ensure_connected_async(self) -> None:
-        if self._is_client_connected() and not self._should_reset_idle_connection():
+        if self._is_client_connected(): #and not self._should_reset_idle_connection()
             return
 
         await self._disconnect_async()

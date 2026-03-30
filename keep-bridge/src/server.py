@@ -52,6 +52,12 @@ def keepalive_loop() -> None:
         keepalive_poll_once()
 
 
+def keep_bluetooth_alive_loop() -> None:
+    while True:
+        time.sleep(print_service._transport.ble_idle_timeout_seconds)
+        warmup_result = print_service.warmup_printer_session()
+
+
 @app.get("/health")
 def health() -> Any:
     with state_lock:
@@ -189,6 +195,9 @@ def main() -> None:
 
     thread = threading.Thread(target=keepalive_loop, daemon=True)
     thread.start()
+
+    thread2 = threading.Thread(target=keep_bluetooth_alive_loop, daemon=True)
+    thread2.start()
 
     app.run(host="0.0.0.0", port=port)
 
