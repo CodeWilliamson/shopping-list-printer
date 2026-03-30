@@ -57,7 +57,7 @@ def build_escpos_output(title: str, unchecked_items: list[str]) -> list[int]:
     # Centered bold title.
     payload.extend(b"\x1b\x61\x01")
     payload.extend(b"\x1b\x45\x01")
-    payload.extend(b"\x1d\x21\x33") # 4x height, 4x width
+    payload.extend(b"\x1d\x21\x22") # 4x height, 4x width
     payload.extend(title.encode("utf-8", errors="replace"))
     payload.extend(b"\n")
     payload.extend(b"\x1b\x45\x00") # Cancel bold
