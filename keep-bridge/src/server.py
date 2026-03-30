@@ -67,7 +67,41 @@ def health() -> Any:
 
 @app.get("/printer-status")
 def printer_status() -> Any:
-    return jsonify(print_service.get_status())
+    realtime_param = request.args.get("realtime", "true").strip().lower()
+    realtime = realtime_param not in {"0", "false", "no", "off"}
+    return jsonify(print_service.get_status(realtime=realtime))
+
+
+@app.post("/printer-session/close")
+def close_printer_session() -> Any:
+    result = print_service.close_printer_session()
+    status_code = result.status_code if result.status_code is not None else (200 if result.ok else 502)
+    return (
+        jsonify(
+            {
+                "ok": result.ok,
+                "message": result.response,
+                "printerTransport": settings.printer.transport,
+            }
+        ),
+        status_code,
+    )
+
+
+@app.post("/printer-session/reopen")
+def reopen_printer_session() -> Any:
+    result = print_service.reopen_printer_session()
+    status_code = result.status_code if result.status_code is not None else (200 if result.ok else 502)
+    return (
+        jsonify(
+            {
+                "ok": result.ok,
+                "message": result.response,
+                "printerTransport": settings.printer.transport,
+            }
+        ),
+        status_code,
+    )
 
 
 @app.get("/list")
@@ -146,7 +180,12 @@ def print_list() -> Any:
 
 def main() -> None:
     port = settings.app.port
-    print(f"[keep-bridge] Listening on :{port}")
+
+    warmup_result = print_service.warmup_printer_session()
+    if warmup_result.ok:
+        print(f"[keep-bridge] Printer warmup: {warmup_result.response}")
+    else:
+        print(f"[keep-bridge] Printer warmup failed: {warmup_result.response}")
 
     thread = threading.Thread(target=keepalive_loop, daemon=True)
     thread.start()

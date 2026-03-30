@@ -46,6 +46,7 @@ PRINTER_BLE_DEVICE_NAME=ReceiptPrinter
 PRINTER_BLE_DEVICE_ADDRESS=
 PRINTER_BLE_SCAN_TIMEOUT_SECONDS=8
 PRINTER_BLE_CONNECT_TIMEOUT_SECONDS=10
+PRINTER_BLE_IDLE_TIMEOUT_SECONDS=300
 PRINTER_WRITE_CHUNK_SIZE=180
 PRINTER_JOB_FEED_LINES=6
 PRINTER_AUTO_CUT=true
@@ -74,6 +75,11 @@ The service listens on `PORT` (default `3001`).
 Printer transport options:
 - `PRINTER_TRANSPORT=bluetooth_ble`: print directly from Raspberry Pi over BLE.
 - `PRINTER_TRANSPORT=esp32_http`: keep forwarding to the ESP32 bridge.
+
+BLE connection behavior:
+- `PRINTER_CONNECT_PER_JOB=true`: connect/disconnect every print.
+- `PRINTER_CONNECT_PER_JOB=false`: reuse a persistent BLE connection between prints.
+- `PRINTER_BLE_IDLE_TIMEOUT_SECONDS`: when using a persistent connection, disconnect after this many idle seconds (`0` disables idle disconnect).
 
 ### 2) Keep Bridge API
 
@@ -105,6 +111,22 @@ Printer diagnostics:
 ```bash
 curl -s "http://127.0.0.1:3001/printer-status"
 ```
+
+`/printer-status` performs a realtime connectivity probe by default for `PRINTER_TRANSPORT=bluetooth_ble`.
+Use `realtime=false` to return cached diagnostics without trying to connect:
+
+```bash
+curl -s "http://127.0.0.1:3001/printer-status?realtime=false"
+```
+
+Manual BLE session controls:
+
+```bash
+curl -s -X POST "http://127.0.0.1:3001/printer-session/close"
+curl -s -X POST "http://127.0.0.1:3001/printer-session/reopen"
+```
+
+On server startup, keep-bridge now performs a printer session warmup attempt and logs the result.
 ```
 
 `/print-list` behavior:

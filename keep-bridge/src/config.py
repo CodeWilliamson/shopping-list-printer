@@ -33,6 +33,7 @@ class PrinterConfig:
     ble_device_address: str
     ble_scan_timeout_seconds: float
     ble_connect_timeout_seconds: float
+    ble_idle_timeout_seconds: float
     write_chunk_size: int
     job_feed_lines: int
     auto_cut: bool
@@ -61,6 +62,7 @@ def load_settings() -> Settings:
             ble_device_address=os.getenv("PRINTER_BLE_DEVICE_ADDRESS", "").strip(),
             ble_scan_timeout_seconds=float(os.getenv("PRINTER_BLE_SCAN_TIMEOUT_SECONDS", "8")),
             ble_connect_timeout_seconds=float(os.getenv("PRINTER_BLE_CONNECT_TIMEOUT_SECONDS", "10")),
+            ble_idle_timeout_seconds=float(os.getenv("PRINTER_BLE_IDLE_TIMEOUT_SECONDS", "300")),
             write_chunk_size=_parse_int(os.getenv("PRINTER_WRITE_CHUNK_SIZE"), 180),
             job_feed_lines=_parse_int(os.getenv("PRINTER_JOB_FEED_LINES"), 6),
             auto_cut=_parse_bool(os.getenv("PRINTER_AUTO_CUT"), True),
@@ -92,3 +94,6 @@ def _validate_printer_settings(config: PrinterConfig) -> None:
 
     if config.job_feed_lines < 0 or config.job_feed_lines > 255:
         raise RuntimeError("PRINTER_JOB_FEED_LINES must be between 0 and 255")
+
+    if config.ble_idle_timeout_seconds < 0:
+        raise RuntimeError("PRINTER_BLE_IDLE_TIMEOUT_SECONDS must be greater than or equal to zero")

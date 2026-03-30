@@ -58,14 +58,27 @@ class PrintService:
             self._last_error = None if result.ok else result.response
             return result
 
-    def get_status(self) -> dict[str, Any]:
-        diagnostics = self._transport.get_diagnostics().to_dict()
+    def get_status(self, realtime: bool = False) -> dict[str, Any]:
+        diagnostics = self._transport.get_diagnostics(realtime=realtime).to_dict()
         diagnostics.update(
             {
                 "lastJobId": self._last_job_id,
                 "lastPrinterError": self._last_error,
                 "lastPrinterResponse": self._last_response,
                 "lastPrinterStatus": self._last_status_code,
+                "realtime": realtime,
             }
         )
         return diagnostics
+
+    def warmup_printer_session(self) -> PrintResult:
+        with self._lock:
+            return self._transport.warmup_session()
+
+    def close_printer_session(self) -> PrintResult:
+        with self._lock:
+            return self._transport.close_session()
+
+    def reopen_printer_session(self) -> PrintResult:
+        with self._lock:
+            return self._transport.reopen_session()
