@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <NimBLEDevice.h>
 #include <PubSubClient.h>
 
@@ -185,16 +186,16 @@ void handlePrint() {
     server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
     return;
   }
+  
+  if (currentPrintFailed) {
+    lastError = currentPrintError;
+    server.send(503, "application/json", "{\"error\":\"Printer unavailable\"}");
+    return;
+  }
 
   if (currentPrintBytes == 0) {
     lastError = "Empty request body";
     server.send(400, "application/json", "{\"error\":\"Empty request body\"}");
-    return;
-  }
-
-  if (currentPrintFailed) {
-    lastError = currentPrintError;
-    server.send(503, "application/json", "{\"error\":\"Printer unavailable\"}");
     return;
   }
 
@@ -297,8 +298,9 @@ void setup() {
   Serial.begin(115200);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname("ReceiptPrinter");
+  delay(10);
   WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
-  WiFi.setHostname("esp32-printer");
 
   Serial.print("[wifi] Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -308,6 +310,10 @@ void setup() {
   Serial.println();
   Serial.print("[wifi] Connected: ");
   Serial.println(WiFi.localIP());
+
+  if (MDNS.begin("ReceiptPrinter")) {
+    Serial.println("mDNS responder started");
+  }
 
   if (isHttpMode()) {
     server.on("/status", HTTP_GET, handleStatus);
@@ -345,6 +351,8 @@ void setup() {
       digitalWrite(LED_BUILTIN, LOW);
       delay(250);
     }
+    const uint8_t lineFeed[] = {0x0A}; // LF - line feed
+    printOverBle(lineFeed, sizeof(lineFeed));
   } else {
     Serial.println("[BLE] Printer not found or failed to connect");
   }
