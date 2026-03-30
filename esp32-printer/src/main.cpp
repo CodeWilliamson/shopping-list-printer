@@ -170,7 +170,7 @@ void handlePrintBody() {
     }
 
     // send line feed and cut command to printer (ESC/POS)
-    const uint8_t linefeedCommand[] = {0x1B, 0x64, 0x0A}; // ESC d n - print and feed n lines (n=10)
+    const uint8_t linefeedCommand[] = {0x1B, 0x64, 0x06}; // ESC d n - print and feed n lines (n=6)
     const uint8_t cutCommand[] = {0x1D, 0x56, 0x00}; // GS V m - cut paper (m=0 for full cut)
     if (!printOverBle(linefeedCommand, sizeof(linefeedCommand)) ||
         !printOverBle(cutCommand, sizeof(cutCommand))) {
