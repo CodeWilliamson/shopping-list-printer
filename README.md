@@ -52,6 +52,12 @@ PRINTER_JOB_FEED_LINES=6
 PRINTER_AUTO_CUT=true
 PRINTER_CONNECT_PER_JOB=true
 
+GROCERY_GROUPING_ENABLED=true
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+GROCERY_STORE_CONTEXT=No Frills and Metro in Ontario, Canada
+GROCERY_GROUPING_TIMEOUT_SECONDS=12
+
 ESP32_PRINT_URL=http://esp32-printer.local/print
 ESP32_API_TOKEN=
 ```
@@ -133,6 +139,12 @@ On server startup, keep-bridge now performs a printer session warmup attempt and
 - Returns `404` if the list title is not found.
 - Returns `502` if Keep fetch or ESP32 forwarding fails.
 - Returns `200` with `jobId` and `bytesSent` on success.
+
+AI grocery grouping:
+- Grouping happens inside `keep-bridge` before print rendering.
+- Uses OpenAI Responses API when `GROCERY_GROUPING_ENABLED=true` and `OPENAI_API_KEY` is set.
+- Items are preserved exactly as text from Keep; if AI output is invalid or unavailable, printing falls back to the ungrouped list.
+- `groupedSections` is included in the `/print-list` response when grouping is used.
 
 ### 3) openHAB Snippets
 

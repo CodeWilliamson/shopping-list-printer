@@ -3,3 +3,4 @@ gkeepapi==0.16.0
 gpsoauth==2.0.0
 python-dotenv==1.0.1
 bleak>=0.22,<1.0
+openai>=1.68.0

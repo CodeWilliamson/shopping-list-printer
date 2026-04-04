@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request
 
 from src.config import load_settings
 from src.escpos import build_escpos_output
+from src.grocery_grouping import create_grocery_section_grouper
 from src.keep_client import create_keep_client
 from src.print_service import PrintService
 from src.printer_transport import create_printer_transport
@@ -22,7 +23,10 @@ from src.printer_transport import create_printer_transport
 settings = load_settings()
 app = Flask(__name__)
 keep_client = create_keep_client()
-print_service = PrintService(create_printer_transport(settings.printer))
+print_service = PrintService(
+    create_printer_transport(settings.printer),
+    grouper=create_grocery_section_grouper(settings.grouping),
+)
 keepalive_poll_seconds = settings.app.keepalive_poll_seconds
 ble_idle_timeout_seconds = settings.printer.ble_idle_timeout_seconds
 
@@ -187,6 +191,10 @@ def print_list() -> Any:
             "jobId": job.job_id,
             "title": job.title,
             "uncheckedItems": job.unchecked_items,
+            "groupedSections": [
+                {"title": section.title, "items": section.items}
+                for section in (job.grouped_sections or [])
+            ],
             "bytesSent": len(job.raw_bytes),
             "printerStatus": result.status_code,
             "printerResponse": result.response,

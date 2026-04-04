@@ -41,9 +41,19 @@ class PrinterConfig:
 
 
 @dataclass(frozen=True)
+class GroceryGroupingConfig:
+    enabled: bool
+    openai_api_key: str
+    openai_model: str
+    store_context: str
+    request_timeout_seconds: float
+
+
+@dataclass(frozen=True)
 class Settings:
     app: AppConfig
     printer: PrinterConfig
+    grouping: GroceryGroupingConfig
 
 
 def load_settings() -> Settings:
@@ -67,6 +77,14 @@ def load_settings() -> Settings:
             job_feed_lines=_parse_int(os.getenv("PRINTER_JOB_FEED_LINES"), 6),
             auto_cut=_parse_bool(os.getenv("PRINTER_AUTO_CUT"), True),
             connect_per_job=_parse_bool(os.getenv("PRINTER_CONNECT_PER_JOB"), True),
+        ),
+        grouping=GroceryGroupingConfig(
+            enabled=_parse_bool(os.getenv("GROCERY_GROUPING_ENABLED"), True),
+            openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+            store_context=os.getenv("GROCERY_STORE_CONTEXT", "No Frills and Metro").strip()
+            or "No Frills and Metro",
+            request_timeout_seconds=float(os.getenv("GROCERY_GROUPING_TIMEOUT_SECONDS", "12")),
         ),
     )
 

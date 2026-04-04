@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from src.escpos import build_escpos_output, build_escpos_payload
+from src.grocery_grouping import GrocerySection
 
 
 class EscPosTests(unittest.TestCase):
@@ -18,6 +19,22 @@ class EscPosTests(unittest.TestCase):
         payload = build_escpos_payload("Shopping List", [])
 
         self.assertIn(b"(empty)\n", payload)
+
+    def test_payload_renders_grouped_sections(self) -> None:
+        payload = build_escpos_payload(
+            "Shopping List",
+            ["Milk", "Eggs", "Bread"],
+            grouped_sections=[
+                GrocerySection(title="Dairy", items=["Milk", "Eggs"]),
+                GrocerySection(title="Bakery", items=["Bread"]),
+            ],
+        )
+
+        self.assertIn(b"Dairy\n", payload)
+        self.assertIn(b"Bakery\n", payload)
+        self.assertIn(b"- Milk\n", payload)
+        self.assertIn(b"- Eggs\n", payload)
+        self.assertIn(b"- Bread\n", payload)
 
 
 if __name__ == "__main__":

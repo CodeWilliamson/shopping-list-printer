@@ -11,6 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.escpos import build_escpos_payload
+from src.grocery_grouping import GrocerySection, GrocerySectionGrouper
 from src.keep_client import KeepSnapshot
 from src.printer_transport import PrintResult, PrinterTransport
 
@@ -21,11 +22,13 @@ class PrintJob:
     raw_bytes: bytes
     title: str
     unchecked_items: list[str]
+    grouped_sections: list[GrocerySection] | None
 
 
 class PrintService:
-    def __init__(self, transport: PrinterTransport) -> None:
+    def __init__(self, transport: PrinterTransport, grouper: GrocerySectionGrouper | None = None) -> None:
         self._transport = transport
+        self._grouper = grouper
         self._lock = threading.Lock()
         self._last_error: str | None = None
         self._last_job_id: str | None = None
@@ -42,11 +45,21 @@ class PrintService:
             ]
         )
         job_id = hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()[:16]
+
+        grouped_sections: list[GrocerySection] | None = None
+        if self._grouper is not None and snapshot.unchecked_items:
+            grouped_sections = self._grouper.group_items(snapshot.title, snapshot.unchecked_items)
+
         return PrintJob(
             job_id=job_id,
-            raw_bytes=build_escpos_payload(snapshot.title, snapshot.unchecked_items),
+            raw_bytes=build_escpos_payload(
+                snapshot.title,
+                snapshot.unchecked_items,
+                grouped_sections=grouped_sections,
+            ),
             title=snapshot.title,
             unchecked_items=snapshot.unchecked_items,
+            grouped_sections=grouped_sections,
         )
 
     def send_job(self, job: PrintJob) -> PrintResult:
