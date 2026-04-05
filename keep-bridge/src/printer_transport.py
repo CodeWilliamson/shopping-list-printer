@@ -126,14 +126,15 @@ class BlePrinterTransport:
         self._last_activity_at: float | None = None
 
         # Periodic reconnect
-        self._reconnect_interval_seconds: float = self._config.ble_idle_timeout_seconds 
-        self._reconnect_stop_event = threading.Event()
-        self._reconnect_thread = threading.Thread(
-            target=self._reconnect_loop,
-            name="ble-reconnect",
-            daemon=True,
-        )
-        self._reconnect_thread.start()
+        if self._config.ble_idle_timeout_seconds > 0 and not self._config.connect_per_job:
+            self._reconnect_interval_seconds: float = self._config.ble_idle_timeout_seconds 
+            self._reconnect_stop_event = threading.Event()
+            self._reconnect_thread = threading.Thread(
+                target=self._reconnect_loop,
+                name="ble-reconnect",
+                daemon=True,
+            )
+            self._reconnect_thread.start()
 
     def _reconnect_loop(self) -> None:
         print("Starting BLE reconnect loop with interval:", self._reconnect_interval_seconds)
@@ -204,7 +205,6 @@ class BlePrinterTransport:
                 return PrintResult(ok=False, status_code=None, response=self._last_error)
 
     def close_session(self) -> PrintResult:
-        self._reconnect_stop_event.set()  # Stop the background thread
         with self._loop_lock:
             try:
                 self._run_on_loop(self._disconnect_async())
