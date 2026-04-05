@@ -184,7 +184,17 @@ def print_list() -> Any:
             ),
             502,
         )
-    
+    return (
+        jsonify(
+        {
+            "ok": True,
+            "message": "Print job sent successfully",
+            "jobId": job.job_id,
+            "printerTransport": settings.printer.transport,
+        }),
+        200,
+    )
+
 @app.get("/scan-bluetooth")
 def scan_bluetooth() -> Any:
     if settings.printer.transport != "bluetooth_ble":
