@@ -202,12 +202,11 @@ def scan_bluetooth() -> Any:
 def main() -> None:
     port = settings.app.port
 
-    if not settings.printer.connect_per_job:
-        warmup_result = print_service.warmup_printer_session()
-        if warmup_result.ok:
-            print(f"[keep-bridge] Printer warmup: {warmup_result.response}")
-        else:
-            print(f"[keep-bridge] Printer warmup failed: {warmup_result.response}")
+    warmup_result = print_service.warmup_printer_session()
+    if warmup_result.ok:
+        print(f"[keep-bridge] Printer warmup: {warmup_result.response}")
+    else:
+        print(f"[keep-bridge] Printer warmup failed: {warmup_result.response}")
 
     thread = threading.Thread(target=keepalive_loop, daemon=True)
     thread.start()
