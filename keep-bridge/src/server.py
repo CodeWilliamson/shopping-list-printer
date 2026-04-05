@@ -184,23 +184,19 @@ def print_list() -> Any:
             ),
             502,
         )
+    
+@app.get("/scan-bluetooth")
+def scan_bluetooth() -> Any:
+    if settings.printer.transport != "bluetooth_ble":
+        return jsonify({"error": "Bluetooth scanning is only available for Bluetooth printer transport"}), 400
 
-    return jsonify(
-        {
-            "ok": True,
-            "jobId": job.job_id,
-            "title": job.title,
-            "uncheckedItems": job.unchecked_items,
-            "groupedSections": [
-                {"title": section.title, "items": section.items}
-                for section in (job.grouped_sections or [])
-            ],
-            "bytesSent": len(job.raw_bytes),
-            "printerStatus": result.status_code,
-            "printerResponse": result.response,
-            "printerTransport": settings.printer.transport,
-        }
-    )
+    try:
+        with client_lock:
+            devices = print_service._transport.scan_for_devices() 
+        return jsonify({"devices": devices})
+    except Exception as error:  # noqa: BLE001
+        return jsonify({"error": "Failed to scan for Bluetooth devices", "details": str(error)}), 502
+
 
 
 def main() -> None:

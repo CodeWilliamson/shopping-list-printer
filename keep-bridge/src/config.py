@@ -65,7 +65,7 @@ def load_settings() -> Settings:
             keepalive_poll_seconds=_parse_int(os.getenv("KEEP_KEEPALIVE_POLL_SECONDS"), 3600),
         ),
         printer=PrinterConfig(
-            transport=os.getenv("PRINTER_TRANSPORT", "esp32_http").strip() or "esp32_http",
+            transport=os.getenv("PRINTER_TRANSPORT", "bluetooth_ble").strip(),
             esp32_print_url=os.getenv("ESP32_PRINT_URL", "http://ReceiptPrinter.local/print").strip(),
             esp32_api_token=os.getenv("ESP32_API_TOKEN", "").strip(),
             ble_device_name=os.getenv("PRINTER_BLE_DEVICE_NAME", "").strip(),

@@ -52,6 +52,9 @@ class PrinterTransport(Protocol):
 
     def reopen_session(self) -> PrintResult:
         ...
+    
+    def scan_for_devices(self) -> PrintResult:
+        ...
 
 
 class Esp32HttpPrinterTransport:
@@ -122,6 +125,22 @@ class BlePrinterTransport:
         self._connection_started_at: float | None = None
         self._last_activity_at: float | None = None
 
+        # Periodic reconnect
+        self._reconnect_interval_seconds: float = self._config.ble_idle_timeout_seconds 
+        self._reconnect_stop_event = threading.Event()
+        self._reconnect_thread = threading.Thread(
+            target=self._reconnect_loop,
+            name="ble-reconnect",
+            daemon=True,
+        )
+        self._reconnect_thread.start()
+
+    def _reconnect_loop(self) -> None:
+        print("Starting BLE reconnect loop with interval:", self._reconnect_interval_seconds)
+        while not self._reconnect_stop_event.wait(timeout=self._reconnect_interval_seconds):
+            if self._is_client_connected():
+                self.reopen_session()
+
     def send(self, raw_bytes: bytes, job_id: str) -> PrintResult:
         del job_id
         with self._loop_lock:
@@ -185,6 +204,7 @@ class BlePrinterTransport:
                 return PrintResult(ok=False, status_code=None, response=self._last_error)
 
     def close_session(self) -> PrintResult:
+        self._reconnect_stop_event.set()  # Stop the background thread
         with self._loop_lock:
             try:
                 self._run_on_loop(self._disconnect_async())
@@ -195,6 +215,7 @@ class BlePrinterTransport:
                 return PrintResult(ok=False, status_code=None, response=self._last_error)
 
     def reopen_session(self) -> PrintResult:
+        print("Reopening BLE session...")
         with self._loop_lock:
             try:
                 self._run_on_loop(self._disconnect_async())
@@ -207,7 +228,18 @@ class BlePrinterTransport:
                 return PrintResult(ok=True, status_code=200, response=response)
             except Exception as error:  # noqa: BLE001
                 self._last_error = str(error) if str(error) else error.__class__.__name__
+                print(f"Error reopening BLE session: {self._last_error}")
                 return PrintResult(ok=False, status_code=None, response=self._last_error)
+            
+    def scan_for_devices(self) -> list[dict[str, str]]:
+        bleak = self._get_bleak()
+        devices = self._run_on_loop(bleak.BleakScanner.discover(timeout=self._config.ble_scan_timeout_seconds))
+        results = []
+        for device in devices:
+            name = (getattr(device, "name", None) or getattr(device, "local_name", None) or "").strip()
+            address = getattr(device, "address", "").strip()
+            results.append({"name": name, "address": address})
+        return results
 
     async def _send_async(self, raw_bytes: bytes) -> None:
         await self._ensure_connected_async()
@@ -253,13 +285,15 @@ class BlePrinterTransport:
         return probe
 
     async def _ensure_connected_async(self) -> None:
+        print("Ensuring BLE connection...")
         if self._is_client_connected(): #and not self._should_reset_idle_connection()
             return
-
+        
         await self._disconnect_async()
 
         bleak = self._get_bleak()
         device = await self._discover_device(bleak.BleakScanner)
+        print(f"Found BLE device: {getattr(device, 'name', None)} ({getattr(device, 'address', None)})")
         self._last_connected_address = getattr(device, "address", None)
         self._client = bleak.BleakClient(device, timeout=self._config.ble_connect_timeout_seconds)
         await self._client.connect()
@@ -306,6 +340,7 @@ class BlePrinterTransport:
         return self._bleak
 
     async def _discover_device(self, scanner_cls: Any) -> Any:
+        print("Scanning for BLE devices...")
         if self._config.ble_device_address:
             devices = await scanner_cls.discover(timeout=self._config.ble_scan_timeout_seconds)
             for device in devices:
