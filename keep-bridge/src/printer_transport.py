@@ -283,6 +283,16 @@ class BlePrinterTransport:
         if self._config.connect_per_job:
             await self._disconnect_async()
         return probe
+    
+    def _handle_disconnect(self, client: Any) -> None:
+        print(f"Disconnected from {client.address}!")
+        self._last_error = "BLE client disconnected"
+        self._client = None
+        self._characteristic = None
+        self._use_response = False
+        self._last_connected_address = None
+        self._connection_started_at = None
+        self._last_activity_at = None
 
     async def _ensure_connected_async(self) -> None:
         print("Ensuring BLE connection...")
@@ -295,7 +305,7 @@ class BlePrinterTransport:
         device = await self._discover_device(bleak.BleakScanner)
         print(f"Found BLE device: {getattr(device, 'name', None)} ({getattr(device, 'address', None)})")
         self._last_connected_address = getattr(device, "address", None)
-        self._client = bleak.BleakClient(device, timeout=self._config.ble_connect_timeout_seconds)
+        self._client = bleak.BleakClient(device, timeout=self._config.ble_connect_timeout_seconds, disconnected_callback=self._handle_disconnect)
         await self._client.connect()
         if not self._client.is_connected:
             raise RuntimeError("Failed to connect to BLE printer")
