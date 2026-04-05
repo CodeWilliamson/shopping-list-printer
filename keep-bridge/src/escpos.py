@@ -5,6 +5,7 @@ from src.grocery_grouping import GrocerySection
 
 def build_escpos_payload(
     title: str,
+    subtitle: str,
     unchecked_items: list[str],
     grouped_sections: list[GrocerySection] | None = None,
 ) -> bytes:
@@ -20,6 +21,8 @@ def build_escpos_payload(
     payload.extend(b"\n")
     payload.extend(b"\x1b\x45\x00")
     payload.extend(b"\x1d\x21\x11")
+    payload.extend(subtitle.encode("utf-8", errors="replace"))
+    payload.extend(b"\n")
     payload.extend(b"\x1b\x61\x00")
     payload.extend(b"\n")
 
@@ -45,5 +48,5 @@ def build_escpos_payload(
     return bytes(payload)
 
 
-def build_escpos_output(title: str, unchecked_items: list[str]) -> list[int]:
-    return list(build_escpos_payload(title, unchecked_items))
+def build_escpos_output(title: str, subtitle: str, unchecked_items: list[str]) -> list[int]:
+    return list(build_escpos_payload(title, subtitle, unchecked_items))

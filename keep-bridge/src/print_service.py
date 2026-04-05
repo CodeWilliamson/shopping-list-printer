@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import Any
+from datetime import datetime
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -21,6 +22,7 @@ class PrintJob:
     job_id: str
     raw_bytes: bytes
     title: str
+    subtitle: str
     unchecked_items: list[str]
     grouped_sections: list[GrocerySection] | None
 
@@ -49,11 +51,15 @@ class PrintService:
         grouped_sections: list[GrocerySection] | None = None
         if self._grouper is not None and snapshot.unchecked_items:
             grouped_sections = self._grouper.group_items(snapshot.title, snapshot.unchecked_items)
+        
+        now = datetime.now()
+        subtitle = now.strftime("%Y-%m-%d %H:%M")
 
         return PrintJob(
             job_id=job_id,
             raw_bytes=build_escpos_payload(
                 snapshot.title,
+                subtitle,
                 snapshot.unchecked_items,
                 grouped_sections=grouped_sections,
             ),
