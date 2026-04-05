@@ -22,7 +22,6 @@ class PrintJob:
     job_id: str
     raw_bytes: bytes
     title: str
-    subtitle: str
     unchecked_items: list[str]
     grouped_sections: list[GrocerySection] | None
 
