@@ -158,6 +158,7 @@ def print_list() -> Any:
 
     try:
         with client_lock:
+            print_service.close_printer_session()
             keep_list = keep_client.fetch_list(list_name)
     except Exception as error:  # noqa: BLE001
         return jsonify({"error": "Failed to fetch Keep list", "details": str(error)}), 502
@@ -195,6 +196,7 @@ def print_list() -> Any:
 def print_daily_fun() -> Any:
     try:
         with client_lock:
+            print_service.close_printer_session()
             fun_job = print_service.create_print_fun_message_job()
     except Exception as error:
         return (
