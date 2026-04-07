@@ -30,9 +30,9 @@ class GroceryGroupingTask:
         items_block = "\n".join(f"- {item}" for item in items)
         return (
             "You are organizing a shopping list for grocery stores in Ontario, Canada. "
+            "Return ONLY parsable JSON, NO EXTRA CHARACTERS before or after the JSON. Your output must parse when run through a JSON parser: "
+            'JSON format: {"sections":[{"title":"Produce","items":["Milk"]}]}.\n'
             f"Typical stores: {self._store_context}.\n"
-            "Return only JSON with this shape, NO EXTRA CHARACTERS before or after the JSON. Your output must parse when run through a JSON parser: "
-            '{"sections":[{"title":"Produce","items":["Milk"]}]}.\n'
             "Rules:\n"
             "1) Keep each item text exactly as provided. Do not rename or normalize items.\n"
             "2) Every input item must appear exactly once across all sections.\n"
