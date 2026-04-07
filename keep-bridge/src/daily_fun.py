@@ -19,10 +19,10 @@ class DailyFun:
             'Format:\n'
             '[{"section":"Joke","content":""},{"section":"Fact","content":""},{"section":"Word of the Day","content":""},{"section":"Math Challenge","content":""}]\n\n'
             'Rules:\n'
-            '- Fill all content fields\n'
+            '- Fill all content fields with new content\n'
             '- Short, fun, clean (for age 9)\n'
             '- Word of the Day: include definition + sentence\n'
-            '- Math Challenge: only the question, no answer\n'
+            '- Math Challenge: make it hard for a grade 3 student, only the question, no answer\n'
         )
 
         raw = self._ai_client.call(prompt)
