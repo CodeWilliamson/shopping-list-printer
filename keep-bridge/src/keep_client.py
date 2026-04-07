@@ -12,7 +12,7 @@ from gkeepapi import node
 
 
 @dataclass(frozen=True)
-class KeepSnapshot:
+class KeepList:
     note_id: str
     title: str
     unchecked_items: list[str]
@@ -21,7 +21,7 @@ class KeepSnapshot:
 
 
 class KeepClient(Protocol):
-    def fetch_list(self, list_name: str) -> KeepSnapshot | None:
+    def fetch_list(self, list_name: str) -> KeepList | None:
         ...
 
     def keepalive_sync(self) -> None:
@@ -32,13 +32,13 @@ class MockKeepClient:
     def __init__(self) -> None:
         self._counter = 0
 
-    def fetch_list(self, list_name: str) -> KeepSnapshot | None:
+    def fetch_list(self, list_name: str) -> KeepList | None:
         self._counter += 1
         normalized = list_name.strip().casefold()
         if normalized != "shopping list" and normalized != "shopping list mock":
             return None
 
-        return KeepSnapshot(
+        return KeepList(
             note_id="mock-note",
             title=list_name.strip() or "Shopping List",
             unchecked_items=["Milk", "Eggs", "Bread"],
@@ -69,7 +69,7 @@ class GoogleKeepClient:
     def keepalive_sync(self) -> None:
         self._sync_and_persist()
 
-    def fetch_list(self, list_name: str) -> KeepSnapshot | None:
+    def fetch_list(self, list_name: str) -> KeepList | None:
         lookup_name = list_name.strip()
         if not lookup_name:
             return None
@@ -86,7 +86,7 @@ class GoogleKeepClient:
         updated_ts = target_note.timestamps.updated
         updated_at = updated_ts.isoformat() if updated_ts else datetime.now(tz=timezone.utc).isoformat()
 
-        return KeepSnapshot(
+        return KeepList(
             note_id=target_note.id,
             title=target_note.title.strip() if target_note.title else lookup_name,
             unchecked_items=unchecked_items,

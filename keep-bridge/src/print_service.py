@@ -11,60 +11,88 @@ from datetime import datetime
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.escpos import build_escpos_payload
-from src.grocery_grouping import GrocerySection, GrocerySectionGrouper
-from src.keep_client import KeepSnapshot
+from src.escpos import build_shopping_list_escpos_payload, build_daily_fun_escpos_payload
+from typing import Optional
+from src.keep_client import KeepList
 from src.printer_transport import PrintResult, PrinterTransport
+from src.config import load_settings
+from src.grocery_item_grouper import create_grocery_section_grouper, GrocerySection
+from src.daily_fun import create_daily_fun
 
 
 @dataclass(frozen=True)
+
 class PrintJob:
     job_id: str
     raw_bytes: bytes
     title: str
-    unchecked_items: list[str]
-    grouped_sections: list[GrocerySection] | None
 
 
 class PrintService:
-    def __init__(self, transport: PrinterTransport, grouper: GrocerySectionGrouper | None = None) -> None:
+    def __init__(self, transport: PrinterTransport) -> None:
         self._transport = transport
-        self._grouper = grouper
         self._lock = threading.Lock()
-        self._last_error: str | None = None
-        self._last_job_id: str | None = None
-        self._last_response: str | None = None
-        self._last_status_code: int | None = None
+        self._last_error: Optional[str] = None
+        self._last_job_id: Optional[str] = None
+        self._last_response: Optional[str] = None
+        self._last_status_code: Optional[int] = None
 
-    def create_job(self, snapshot: KeepSnapshot) -> PrintJob:
-        signature_payload = "|".join(
-            [
-                snapshot.note_id,
-                snapshot.updated_at,
-                ",".join(snapshot.unchecked_items),
-                ",".join(snapshot.checked_items),
-            ]
-        )
+
+    def create_print_keep_list_job(self, keep_list: KeepList) -> PrintJob:
+        """
+        Print a Google Keep list. If grouped_sections is not provided, group items using OpenAI if enabled.
+        """
+        print("[DEBUG] create_print_keep_list_job called")
+
+        settings = load_settings()
+        grouper = create_grocery_section_grouper(settings.openai, settings.grouping)
+        grouped_sections = grouper.group_items(keep_list.title, keep_list.unchecked_items)
+
+        signature_payload = "|".join([
+            keep_list.note_id,
+            keep_list.updated_at,
+            ",".join(keep_list.unchecked_items),
+        ])
         job_id = hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()[:16]
-
-        grouped_sections: list[GrocerySection] | None = None
-        if self._grouper is not None and snapshot.unchecked_items:
-            grouped_sections = self._grouper.group_items(snapshot.title, snapshot.unchecked_items)
-        
         now = datetime.now()
         subtitle = now.strftime("%Y-%m-%d %H:%M")
+        print(f"[DEBUG] subtitle: {subtitle}")
+        raw_bytes = build_shopping_list_escpos_payload(
+            keep_list.title,
+            subtitle,
+            keep_list.unchecked_items,
+            grouped_sections=grouped_sections,
+        )
+        print(f"[DEBUG] raw_bytes length: {len(raw_bytes)}")
+        job = PrintJob(
+            job_id=job_id,
+            raw_bytes=raw_bytes,
+            title=keep_list.title,
+        )
+        print(f"[DEBUG] PrintJob created: job_id={job.job_id}, title={job.title}")
+        return job
 
+    def create_print_fun_message_job(self) -> PrintJob:
+        """
+        Print a daily fun message. Expects fun_data to contain keys like 'title', 'lines', etc.
+        """
+        print("[DEBUG] create_print_fun_message_job called")
+        daily_fun_generator = create_daily_fun(load_settings().openai)
+        title = "Daily Fun"
+        items = daily_fun_generator.generate_daily_fun()
+        now = datetime.now()
+        subtitle = now.strftime("%Y-%m-%d %H:%M")
+        raw_bytes = build_daily_fun_escpos_payload(
+            title,
+            subtitle,
+            items,
+        )
+
+        job_id = hashlib.sha256((title + subtitle + ",".join(items[0].content)).encode("utf-8")).hexdigest()[:16]
         return PrintJob(
             job_id=job_id,
-            raw_bytes=build_escpos_payload(
-                snapshot.title,
-                subtitle,
-                snapshot.unchecked_items,
-                grouped_sections=grouped_sections,
-            ),
-            title=snapshot.title,
-            unchecked_items=snapshot.unchecked_items,
-            grouped_sections=grouped_sections,
+            raw_bytes=raw_bytes,
+            title=title,
         )
 
     def send_job(self, job: PrintJob) -> PrintResult:

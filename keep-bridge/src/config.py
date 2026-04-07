@@ -41,18 +41,22 @@ class PrinterConfig:
 
 
 @dataclass(frozen=True)
-class GroceryGroupingConfig:
-    enabled: bool
+class OpenAIConfig:
     openai_api_key: str
     openai_model: str
-    store_context: str
     request_timeout_seconds: float
+
+@dataclass(frozen=True)
+class GroceryGroupingConfig:
+    enabled: bool
+    store_context: str
 
 
 @dataclass(frozen=True)
 class Settings:
     app: AppConfig
     printer: PrinterConfig
+    openai: OpenAIConfig
     grouping: GroceryGroupingConfig
 
 
@@ -78,13 +82,15 @@ def load_settings() -> Settings:
             auto_cut=_parse_bool(os.getenv("PRINTER_AUTO_CUT"), True),
             connect_per_job=_parse_bool(os.getenv("PRINTER_CONNECT_PER_JOB"), True),
         ),
-        grouping=GroceryGroupingConfig(
-            enabled=_parse_bool(os.getenv("GROCERY_GROUPING_ENABLED"), True),
+        openai=OpenAIConfig(
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+            request_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "12")),
+        ),
+        grouping=GroceryGroupingConfig(
+            enabled=_parse_bool(os.getenv("GROCERY_GROUPING_ENABLED"), True),
             store_context=os.getenv("GROCERY_STORE_CONTEXT", "No Frills and Metro").strip()
             or "No Frills and Metro",
-            request_timeout_seconds=float(os.getenv("GROCERY_GROUPING_TIMEOUT_SECONDS", "12")),
         ),
     )
 
@@ -93,7 +99,7 @@ def load_settings() -> Settings:
 
 
 def _validate_printer_settings(config: PrinterConfig) -> None:
-    supported_transports = {"esp32_http", "bluetooth_ble"}
+    supported_transports = {"esp32_http", "bluetooth_ble", "mock_ble"}
     if config.transport not in supported_transports:
         raise RuntimeError(
             f"Unsupported PRINTER_TRANSPORT '{config.transport}'. Supported values: {sorted(supported_transports)}"

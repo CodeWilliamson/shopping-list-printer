@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from src.config import GroceryGroupingConfig
+from src.config import OpenAIConfig
 
 
 @dataclass(frozen=True)
@@ -154,7 +154,7 @@ class NoopGrocerySectionGrouper:
         return None
 
 
-def create_grocery_section_grouper(config: GroceryGroupingConfig) -> GrocerySectionGrouper:
+def create_grocery_section_grouper(config: OpenAIConfig) -> GrocerySectionGrouper:
     if not config.enabled:
         return NoopGrocerySectionGrouper()
 

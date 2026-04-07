@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from src.grocery_grouping import OpenAIGrocerySectionGrouper
+from src.grocery_item_grouper import OpenAIGrocerySectionGrouper
 
 
 class _FakeResponse:

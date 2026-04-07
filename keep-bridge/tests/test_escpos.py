@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from src.escpos import build_escpos_output, build_escpos_payload
-from src.grocery_grouping import GrocerySection
+from src.grocery_item_grouper import GrocerySection
 
 
 class EscPosTests(unittest.TestCase):

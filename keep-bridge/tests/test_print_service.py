@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from src.grocery_grouping import GrocerySection
-from src.keep_client import KeepSnapshot
+from src.grocery_item_grouper import GrocerySection
+from src.keep_client import KeepList
 from src.print_service import PrintService
 from src.printer_transport import PrintResult, PrinterDiagnostics
 
@@ -49,7 +49,7 @@ class PrintServiceTests(unittest.TestCase):
                 sections=[GrocerySection(title="Dairy", items=["Milk"])],
             ),
         )
-        snapshot = KeepSnapshot(
+        snapshot = KeepList(
             note_id="note-1",
             title="Shopping List",
             unchecked_items=["Milk"],
@@ -69,7 +69,7 @@ class PrintServiceTests(unittest.TestCase):
             transport=_StubTransport(),
             grouper=_StubGrouper(sections=None),
         )
-        snapshot = KeepSnapshot(
+        snapshot = KeepList(
             note_id="note-2",
             title="Shopping List",
             unchecked_items=["Milk"],

@@ -16,6 +16,11 @@ if __package__ in {None, ""}:
 
 from src.config import PrinterConfig
 
+MOCK_DEVICES = [
+    {"name": "MockPrinter-A", "address": "AA:BB:CC:DD:EE:01"},
+    {"name": "MockPrinter-B", "address": "AA:BB:CC:DD:EE:02"},
+    {"name": "MockPrinter-C", "address": "AA:BB:CC:DD:EE:03"},
+]
 
 @dataclass(frozen=True)
 class PrintResult:
@@ -107,6 +112,195 @@ class Esp32HttpPrinterTransport:
 
     def reopen_session(self) -> PrintResult:
         return PrintResult(ok=True, status_code=200, response="No BLE session to reopen for esp32_http transport")
+
+
+class MockBlePrinterTransport:
+    transport_name = "mock_ble"
+
+    def __init__(self, config: PrinterConfig) -> None:
+        self._config = config
+        self._connected = False
+        self._last_connected_address: str | None = None
+        self._last_error: str | None = None
+        self._connection_started_at: float | None = None
+        self._last_activity_at: float | None = None
+        self._mock_characteristic_uuid = "0000ae01-0000-1000-8000-00805f9b34fb"
+
+        if self._config.ble_idle_timeout_seconds > 0 and not self._config.connect_per_job:
+            self._reconnect_interval_seconds: float = self._config.ble_idle_timeout_seconds
+            self._reconnect_stop_event = threading.Event()
+            self._reconnect_thread = threading.Thread(
+                target=self._reconnect_loop,
+                name="ble-reconnect",
+                daemon=True,
+            )
+            self._reconnect_thread.start()
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _reconnect_loop(self) -> None:
+        print("[Mock] Starting BLE reconnect loop with interval:", self._reconnect_interval_seconds)
+        while not self._reconnect_stop_event.wait(timeout=self._reconnect_interval_seconds):
+            if self._connected:
+                self.reopen_session()
+
+    def _resolve_device(self) -> dict[str, str]:
+        """Return the mock device matching config address/name, or the first available."""
+        for device in MOCK_DEVICES:
+            if self._config.ble_device_address and device["address"].casefold() == self._config.ble_device_address.casefold():
+                return device
+            if self._config.ble_device_name and device["name"].casefold() == self._config.ble_device_name.casefold():
+                return device
+        # Fall back to first mock device
+        return MOCK_DEVICES[0]
+
+    def _connect(self) -> None:
+        device = self._resolve_device()
+        print(f"[Mock] Connecting to BLE device: {device['name']} ({device['address']})")
+        time.sleep(0.05)  # Simulate connection latency
+        self._connected = True
+        self._last_connected_address = device["address"]
+        now = time.time()
+        self._connection_started_at = now
+        self._last_activity_at = now
+        print(f"[Mock] Connected to {device['name']}")
+
+    def _disconnect(self) -> None:
+        if self._connected:
+            print(f"[Mock] Disconnecting from {self._last_connected_address}")
+        self._connected = False
+        self._last_connected_address = None
+        self._connection_started_at = None
+        self._last_activity_at = None
+
+    def _ensure_connected(self) -> None:
+        if self._connected and not self._should_reset_idle_connection():
+            return
+        self._disconnect()
+        self._connect()
+
+    def _should_reset_idle_connection(self) -> bool:
+        if self._config.connect_per_job:
+            return True
+        timeout = self._config.ble_idle_timeout_seconds
+        if timeout <= 0:
+            return False
+        idle_seconds = _seconds_since(self._last_activity_at)
+        return idle_seconds is not None and idle_seconds >= timeout
+
+    # ------------------------------------------------------------------ #
+    # Public transport interface                                           #
+    # ------------------------------------------------------------------ #
+
+    def send(self, raw_bytes: bytes, job_id: str) -> PrintResult:
+        print(f"[Mock] Sending print job '{job_id}' ({len(raw_bytes)} bytes)")
+        try:
+            self._ensure_connected()
+            # Simulate chunked write
+            chunk_size = self._config.write_chunk_size
+            for offset in range(0, len(raw_bytes), chunk_size):
+                chunk = raw_bytes[offset : offset + chunk_size]
+                print(f"[Mock]   Writing chunk at offset {offset} ({len(chunk)} bytes)")
+                time.sleep(0.01)
+            self._last_activity_at = time.time()
+            if self._config.connect_per_job:
+                self._disconnect()
+            self._last_error = None
+            return PrintResult(ok=True, status_code=None, response="Printed over BLE (mock)")
+        except Exception as error:  # noqa: BLE001
+            self._last_error = str(error) if str(error) else error.__class__.__name__
+            return PrintResult(ok=False, status_code=None, response=self._last_error)
+
+    def get_diagnostics(self, realtime: bool = False) -> PrinterDiagnostics:
+        target = self._last_connected_address or self._config.ble_device_address or self._config.ble_device_name or None
+        details: dict[str, Any] = {
+            "deviceName": self._config.ble_device_name or None,
+            "deviceAddress": self._config.ble_device_address or None,
+            "connectPerJob": self._config.connect_per_job,
+            "idleTimeoutSeconds": self._config.ble_idle_timeout_seconds,
+            "sessionControlSupported": True,
+            "lastError": self._last_error,
+            "connectionStartedAt": self._connection_started_at,
+            "lastActivityAt": self._last_activity_at,
+            "connectionAgeSeconds": _seconds_since(self._connection_started_at),
+            "idleSeconds": _seconds_since(self._last_activity_at),
+        }
+        connected = self._connected
+
+        if realtime:
+            try:
+                self._ensure_connected()
+                details.update({
+                    "realtimeCheckedAt": time.time(),
+                    "writableCharacteristic": self._mock_characteristic_uuid,
+                    "writeMode": "without-response",
+                    "servicesDiscovered": 1,
+                    "connectionAgeSeconds": _seconds_since(self._connection_started_at),
+                    "idleSeconds": _seconds_since(self._last_activity_at),
+                })
+                connected = self._connected
+                self._last_error = None
+                if self._config.connect_per_job:
+                    self._disconnect()
+            except Exception as error:  # noqa: BLE001
+                message = str(error) if str(error) else error.__class__.__name__
+                connected = False
+                details["realtimeError"] = message
+                self._last_error = message
+
+        return PrinterDiagnostics(
+            transport=self.transport_name,
+            target=target,
+            connected=connected,
+            details=details,
+        )
+
+    def warmup_session(self) -> PrintResult:
+        print("[Mock] Warming up BLE session...")
+        try:
+            self._ensure_connected()
+            self._last_error = None
+            response = "BLE session connected (mock)"
+            if self._config.connect_per_job:
+                self._disconnect()
+                response = "BLE session warmup probe succeeded (connect_per_job=true, connection closed) (mock)"
+            return PrintResult(ok=True, status_code=200, response=response)
+        except Exception as error:  # noqa: BLE001
+            self._last_error = str(error) if str(error) else error.__class__.__name__
+            return PrintResult(ok=False, status_code=None, response=self._last_error)
+
+    def close_session(self) -> PrintResult:
+        print("[Mock] Closing BLE session...")
+        try:
+            self._disconnect()
+            self._last_error = None
+            return PrintResult(ok=True, status_code=200, response="BLE session closed (mock)")
+        except Exception as error:  # noqa: BLE001
+            self._last_error = str(error) if str(error) else error.__class__.__name__
+            return PrintResult(ok=False, status_code=None, response=self._last_error)
+
+    def reopen_session(self) -> PrintResult:
+        print("[Mock] Reopening BLE session...")
+        try:
+            self._disconnect()
+            self._ensure_connected()
+            self._last_error = None
+            response = "BLE session reopened (mock)"
+            if self._config.connect_per_job:
+                self._disconnect()
+                response = "BLE session reopened and closed (connect_per_job=true) (mock)"
+            return PrintResult(ok=True, status_code=200, response=response)
+        except Exception as error:  # noqa: BLE001
+            self._last_error = str(error) if str(error) else error.__class__.__name__
+            print(f"[Mock] Error reopening BLE session: {self._last_error}")
+            return PrintResult(ok=False, status_code=None, response=self._last_error)
+
+    def scan_for_devices(self) -> list[dict[str, str]]:
+        print(f"[Mock] Scanning for BLE devices (timeout: {self._config.ble_scan_timeout_seconds}s)...")
+        time.sleep(min(self._config.ble_scan_timeout_seconds, 0.1))  # Simulate scan latency
+        return list(MOCK_DEVICES)
 
 
 class BlePrinterTransport:
@@ -251,12 +445,19 @@ class BlePrinterTransport:
             feed_lines=self._config.job_feed_lines,
             auto_cut=self._config.auto_cut,
         )
+
+        # print raw bytes in hex for debugging
+        # print(f"Framed payload ({len(framed_payload)} bytes): {framed_payload.hex()}")
+
         for offset in range(0, len(framed_payload), self._config.write_chunk_size):
             chunk = framed_payload[offset : offset + self._config.write_chunk_size]
+            print(f"Printing chunk at offset {offset} ({len(chunk)} bytes)")
             await self._client.write_gatt_char(self._characteristic, chunk, response=self._use_response)
         self._last_activity_at = time.time()
 
         if self._config.connect_per_job:
+            # add 1 second delay before disconnecting to allow printer to process the data and avoid cutting off the connection too early
+            await asyncio.sleep(2)
             await self._disconnect_async()
 
     async def _probe_async(self) -> dict[str, Any]:
@@ -387,14 +588,16 @@ def create_printer_transport(config: PrinterConfig) -> PrinterTransport:
         return Esp32HttpPrinterTransport(config)
     if config.transport == "bluetooth_ble":
         return BlePrinterTransport(config)
+    if config.transport == "mock_ble":
+        return MockBlePrinterTransport(config)
     raise RuntimeError(f"Unsupported PRINTER_TRANSPORT: {config.transport}")
 
 
 def _frame_ble_job(raw_bytes: bytes, feed_lines: int, auto_cut: bool) -> bytes:
     payload = bytearray()
-    payload.extend(b"\x1b\x40")
+    payload.extend(b"\x1b\x40") # Initialize printer
     payload.extend(raw_bytes)
-    payload.extend(b"\x1b\x64")
+    payload.extend(b"\x1b\x64") # Feed n lines
     payload.append(feed_lines)
     if auto_cut:
         payload.extend(b"\x1d\x56\x00")

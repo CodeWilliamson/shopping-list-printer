@@ -13,8 +13,6 @@ if __package__ in {None, ""}:
 from flask import Flask, jsonify, request
 
 from src.config import load_settings
-from src.escpos import build_escpos_output
-from src.grocery_grouping import create_grocery_section_grouper
 from src.keep_client import create_keep_client
 from src.print_service import PrintService
 from src.printer_transport import create_printer_transport
@@ -25,7 +23,6 @@ app = Flask(__name__)
 keep_client = create_keep_client()
 print_service = PrintService(
     create_printer_transport(settings.printer),
-    grouper=create_grocery_section_grouper(settings.grouping),
 )
 keepalive_poll_seconds = settings.app.keepalive_poll_seconds
 ble_idle_timeout_seconds = settings.printer.ble_idle_timeout_seconds
@@ -148,7 +145,6 @@ def get_list() -> Any:
             "checkedItems": snapshot.checked_items,
             "updatedAt": snapshot.updated_at,
             "outputEncoding": "byte-array",
-            "output": build_escpos_output(snapshot.title, snapshot.unchecked_items),
         }
     )
 
@@ -162,14 +158,14 @@ def print_list() -> Any:
 
     try:
         with client_lock:
-            snapshot = keep_client.fetch_list(list_name)
+            keep_list = keep_client.fetch_list(list_name)
     except Exception as error:  # noqa: BLE001
         return jsonify({"error": "Failed to fetch Keep list", "details": str(error)}), 502
 
-    if snapshot is None:
+    if keep_list is None:
         return jsonify({"error": f"Keep list not found: {list_name}"}), 404
 
-    job = print_service.create_job(snapshot)
+    job = print_service.create_print_keep_list_job(keep_list)
     result = print_service.send_job(job)
     if not result.ok:
         return (
@@ -194,6 +190,41 @@ def print_list() -> Any:
         }),
         200,
     )
+
+@app.post("/print-daily-fun")
+def print_daily_fun() -> Any:
+    try:
+        with client_lock:
+            fun_job = print_service.create_print_fun_message_job()
+    except Exception as error:
+        return (
+            jsonify({"error": "Failed to create daily fun print job", "details": str(error)}), 502
+        )
+    
+    result = print_service.send_job(fun_job)
+    if not result.ok:
+        return (
+            jsonify(
+                {
+                    "error": "Failed to send daily fun print job to printer",
+                    "printerStatus": result.status_code,
+                    "printerResponse": result.response,
+                    "jobId": fun_job.job_id,
+                    "printerTransport": settings.printer.transport,
+                }
+            ),
+            502,
+        )
+    
+    return (jsonify(
+        {
+            "ok": True,
+            "message": "Daily fun print job created successfully",
+            "jobId": fun_job.job_id,
+            "printerTransport": settings.printer.transport,
+        }), 200,
+    )
+
 
 @app.get("/scan-bluetooth")
 def scan_bluetooth() -> Any:
@@ -220,9 +251,6 @@ def main() -> None:
 
     thread = threading.Thread(target=keepalive_loop, daemon=True)
     thread.start()
-
-    # thread2 = threading.Thread(target=keep_bluetooth_alive_loop, daemon=True)
-    # thread2.start()
 
     app.run(host="0.0.0.0", port=port)
 
