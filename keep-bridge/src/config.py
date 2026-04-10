@@ -22,7 +22,17 @@ def _parse_int(value: str | None, default: int) -> int:
 class AppConfig:
     port: int
     keepalive_poll_seconds: int
+    apileague_api_key: str
 
+@dataclass(frozen=True)
+class DailyFunConfig:
+    apileague_api_key: str
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_password: str
+    smtp_from_addr: str
+    smtp_to_addr: str
 
 @dataclass(frozen=True)
 class PrinterConfig:
@@ -58,6 +68,7 @@ class Settings:
     printer: PrinterConfig
     openai: OpenAIConfig
     grouping: GroceryGroupingConfig
+    daily_fun: DailyFunConfig
 
 
 def load_settings() -> Settings:
@@ -67,6 +78,7 @@ def load_settings() -> Settings:
         app=AppConfig(
             port=_parse_int(os.getenv("PORT"), 3001),
             keepalive_poll_seconds=_parse_int(os.getenv("KEEP_KEEPALIVE_POLL_SECONDS"), 3600),
+            apileague_api_key=os.getenv("APILEAGUE_API_KEY", "").strip(),
         ),
         printer=PrinterConfig(
             transport=os.getenv("PRINTER_TRANSPORT", "bluetooth_ble").strip(),
@@ -92,6 +104,16 @@ def load_settings() -> Settings:
             store_context=os.getenv("GROCERY_STORE_CONTEXT", "No Frills and Metro").strip()
             or "No Frills and Metro",
         ),
+        daily_fun=DailyFunConfig(
+            apileague_api_key=os.getenv("APILEAGUE_API_KEY", "").strip(),
+            smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com").strip(),
+            smtp_port=_parse_int(os.getenv("SMTP_PORT"), 587),
+            smtp_user=os.getenv("SMTP_USER", "").strip(),
+            smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
+            smtp_from_addr=os.getenv("SMTP_FROM_ADDR", "").strip(),
+            smtp_to_addr=os.getenv("SMTP_TO_ADDR", "").strip(),
+        ),
+
     )
 
     _validate_printer_settings(settings.printer)

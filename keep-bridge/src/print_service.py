@@ -77,7 +77,8 @@ class PrintService:
         Print a daily fun message. Expects fun_data to contain keys like 'title', 'lines', etc.
         """
         print("[DEBUG] create_print_fun_message_job called")
-        daily_fun_generator = create_daily_fun(load_settings().openai)
+        settings = load_settings()
+        daily_fun_generator = create_daily_fun(settings.openai, settings.daily_fun)
         title = "Daily Fun"
         items = daily_fun_generator.generate_daily_fun()
         now = datetime.now()
