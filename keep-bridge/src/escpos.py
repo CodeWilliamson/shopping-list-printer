@@ -29,11 +29,11 @@ def build_shopping_list_escpos_payload(
 
     if grouped_sections:
         for index, section in enumerate(grouped_sections):
-            payload.extend(b"\x1b\x45\x01") # bold on for section title
-            payload.extend(b"\x1d\x21\x11") # medium font size for section title
-            payload.extend(f"{section.title}\n".encode("utf-8", errors="replace"))
+            # payload.extend(b"\x1b\x45\x01") # bold on for section title
+            # payload.extend(b"\x1d\x21\x11") # medium font size for section title
             payload.extend(b"\x1b\x45\x00") # reset bold/underline before items
             payload.extend(b"\x1d\x21\x00") # reset font size before items
+            payload.extend(f"{section.title}\n".encode("utf-8", errors="replace"))
 
             for item in section.items:
                 payload.extend(f"- {item}\n".encode("utf-8", errors="replace"))
