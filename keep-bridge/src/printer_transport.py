@@ -436,18 +436,24 @@ class BlePrinterTransport:
         return results
 
     async def _send_async(self, raw_bytes: bytes) -> None:
-        await self._ensure_connected_async()
-        if self._client is None or self._characteristic is None:
-            raise RuntimeError("BLE connection not initialized")
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                await self._ensure_connected_async()
+                if self._client is not None and self._characteristic is not None:
+                    break
+            except Exception as e:
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(0.5)
+        else:
+            raise RuntimeError("BLE connection not initialized after retries")
 
         framed_payload = _frame_ble_job(
             raw_bytes,
             feed_lines=self._config.job_feed_lines,
             auto_cut=self._config.auto_cut,
         )
-
-        # print raw bytes in hex for debugging
-        # print(f"Framed payload ({len(framed_payload)} bytes): {framed_payload.hex()}")
 
         for offset in range(0, len(framed_payload), self._config.write_chunk_size):
             chunk = framed_payload[offset : offset + self._config.write_chunk_size]
@@ -456,7 +462,6 @@ class BlePrinterTransport:
         self._last_activity_at = time.time()
 
         if self._config.connect_per_job:
-            # add 1 second delay before disconnecting to allow printer to process the data and avoid cutting off the connection too early
             await asyncio.sleep(2)
             await self._disconnect_async()
 
